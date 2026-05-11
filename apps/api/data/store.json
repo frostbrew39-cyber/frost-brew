@@ -1,0 +1,306 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "fullName": "Master Admin",
+      "username": "admin",
+      "password": "123",
+      "role": "MASTER_ADMIN",
+      "branchId": 1,
+      "blocked": false,
+      "salaryMonthly": 80000
+    },
+    {
+      "id": 2,
+      "fullName": "Cashier 1",
+      "username": "cashier",
+      "password": "123",
+      "role": "CASHIER",
+      "branchId": 1,
+      "blocked": false,
+      "salaryMonthly": 45000
+    },
+    {
+      "id": 3,
+      "fullName": "Kitchen 1",
+      "username": "kitchen",
+      "password": "123",
+      "role": "KITCHEN",
+      "branchId": 1,
+      "blocked": false,
+      "salaryMonthly": 35000
+    },
+    {
+      "id": 4,
+      "fullName": "ali",
+      "username": "ali",
+      "role": "CASHIER",
+      "branchId": 1,
+      "blocked": false,
+      "password": "123",
+      "permissions": [
+        "dashboard",
+        "attendance"
+      ],
+      "salaryMonthly": 45000
+    },
+    {
+      "id": 5,
+      "fullName": "ali",
+      "username": "ali",
+      "role": "WAITER",
+      "branchId": 1,
+      "blocked": false,
+      "password": "1234",
+      "permissions": [
+        "tables",
+        "pos",
+        "kds"
+      ],
+      "salaryMonthly": 45000
+    }
+  ],
+  "orders": [
+    [
+      1001,
+      {
+        "id": 1001,
+        "orderNo": "FB-1001",
+        "branchId": 1,
+        "customerName": "",
+        "customerPhone": "",
+        "customerAddress": "",
+        "channel": "DINE_IN",
+        "status": "COMPLETED",
+        "placedByStaffId": 1,
+        "placedByStaffName": "Master Admin",
+        "placedAt": "2026-05-11T12:36:39.157Z",
+        "taxRate": 0.1,
+        "items": [
+          {
+            "menuItemId": 1,
+            "itemName": "Double Cheese Smash",
+            "unitPrice": 650,
+            "quantity": 1
+          }
+        ],
+        "paymentMethod": "CASH",
+        "prepStartedAt": "2026-05-11T12:37:10.693Z",
+        "readyAt": "2026-05-11T12:37:14.510Z",
+        "completedAt": "2026-05-11T12:37:17.595Z"
+      }
+    ],
+    [
+      1002,
+      {
+        "id": 1002,
+        "orderNo": "FB-1002",
+        "branchId": 1,
+        "customerName": "",
+        "customerPhone": "",
+        "customerAddress": "",
+        "channel": "DINE_IN",
+        "status": "COMPLETED",
+        "placedByStaffId": 1,
+        "placedByStaffName": "Master Admin",
+        "placedAt": "2026-05-11T12:53:59.112Z",
+        "taxRate": 0.1,
+        "items": [
+          {
+            "menuItemId": 1,
+            "itemName": "Double Cheese Smash",
+            "unitPrice": 650,
+            "quantity": 1
+          },
+          {
+            "menuItemId": 2,
+            "itemName": "Crispy Zinger Classic",
+            "unitPrice": 550,
+            "quantity": 1
+          }
+        ],
+        "paymentMethod": "CASH",
+        "prepStartedAt": "2026-05-11T12:56:14.397Z",
+        "readyAt": "2026-05-11T12:56:14.954Z",
+        "completedAt": "2026-05-11T12:56:17.243Z"
+      }
+    ],
+    [
+      1003,
+      {
+        "id": 1003,
+        "orderNo": "FB-1003",
+        "branchId": 1,
+        "channel": "DINE_IN",
+        "status": "CANCELLED",
+        "placedByStaffId": 5,
+        "placedByStaffName": "ali",
+        "placedAt": "2026-05-11T15:51:35.089Z",
+        "notes": "TABLE:T1",
+        "taxRate": 0.1,
+        "items": [
+          {
+            "menuItemId": 1,
+            "itemName": "Double Cheese Smash",
+            "unitPrice": 650,
+            "quantity": 1
+          },
+          {
+            "menuItemId": 2,
+            "itemName": "Crispy Zinger Classic",
+            "unitPrice": 550,
+            "quantity": 1
+          }
+        ],
+        "cancellationReason": "Long wait time"
+      }
+    ],
+    [
+      1004,
+      {
+        "id": 1004,
+        "orderNo": "FB-1004",
+        "branchId": 1,
+        "customerId": 1,
+        "customerName": "ALI",
+        "customerPhone": "03201987654",
+        "customerAddress": "AL NOOR",
+        "channel": "DINE_IN",
+        "status": "PENDING",
+        "placedByStaffId": 1,
+        "placedByStaffName": "Master Admin",
+        "placedAt": "2026-05-11T16:19:42.911Z",
+        "taxRate": 0.1,
+        "items": [
+          {
+            "menuItemId": 3,
+            "itemName": "Truffle Fries",
+            "unitPrice": 300,
+            "quantity": 1
+          }
+        ],
+        "paymentMethod": "CASH"
+      }
+    ],
+    [
+      1005,
+      {
+        "id": 1005,
+        "orderNo": "FB-1005",
+        "branchId": 1,
+        "customerId": 2,
+        "customerName": "ali",
+        "customerPhone": "09876543432",
+        "customerAddress": "al noor",
+        "channel": "DINE_IN",
+        "status": "PENDING",
+        "placedByStaffId": 1,
+        "placedByStaffName": "Master Admin",
+        "placedAt": "2026-05-11T16:22:00.946Z",
+        "taxRate": 0.1,
+        "items": [
+          {
+            "menuItemId": 3,
+            "itemName": "Truffle Fries",
+            "unitPrice": 300,
+            "quantity": 1
+          }
+        ],
+        "paymentMethod": "CASH"
+      }
+    ]
+  ],
+  "bills": [],
+  "customers": [
+    [
+      1,
+      {
+        "id": 1,
+        "fullName": "ALI",
+        "phone": "03201987654",
+        "address": "AL NOOR",
+        "loyaltyPoints": 0,
+        "khataBalance": 0
+      }
+    ],
+    [
+      2,
+      {
+        "id": 2,
+        "fullName": "ali",
+        "phone": "09876543432",
+        "address": "al noor",
+        "loyaltyPoints": 0,
+        "khataBalance": 0
+      }
+    ]
+  ],
+  "inventory": [
+    [
+      1778504104181,
+      {
+        "id": 1778504104181,
+        "name": "bun",
+        "category": "Ingredients",
+        "unit": "pcs",
+        "currentStock": 100,
+        "alertAt": 10,
+        "purchasePrice": 100
+      }
+    ]
+  ],
+  "riders": [
+    [
+      1778505492627,
+      {
+        "id": 1778505492627,
+        "name": "ali",
+        "phone": "22222222",
+        "payRate": 100,
+        "type": "Per Delivery",
+        "deliveriesDone": 0,
+        "isActive": true
+      }
+    ]
+  ],
+  "receiptLogs": [],
+  "attendance": [
+    [
+      "2026-05-11_1",
+      {
+        "status": "Present",
+        "checkIn": "2026-05-11T12:38:42.141Z",
+        "checkOut": "2026-05-11T12:38:42.531Z"
+      }
+    ],
+    [
+      "2026-05-11_4",
+      {
+        "status": "Present",
+        "checkIn": "2026-05-11T13:19:37.897Z"
+      }
+    ]
+  ],
+  "salaryLogs": [
+    {
+      "id": 1778506941334,
+      "staffId": 2,
+      "date": "2026-05-11",
+      "type": "PAYMENT",
+      "amount": 1000,
+      "notes": "advance"
+    },
+    {
+      "id": 1778506941334,
+      "staffId": 2,
+      "date": "2026-05-11",
+      "type": "PAYMENT",
+      "amount": 1000,
+      "notes": "advance"
+    }
+  ],
+  "seq": {
+    "order": 1005,
+    "bill": 5000
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "frost-brew-pos",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @frost-brew/api",
+    "dev:pos": "npm run dev -w @frost-brew/pos-web",
+    "dev:kds": "npm run dev -w @frost-brew/kds-web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

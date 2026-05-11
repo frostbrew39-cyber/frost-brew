@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS riders (
+  id BIGSERIAL PRIMARY KEY,
+  branch_id BIGINT REFERENCES branches(id),
+  full_name VARCHAR(120) NOT NULL,
+  phone VARCHAR(30) NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS delivery_assignments (
+  id BIGSERIAL PRIMARY KEY,
+  order_id BIGINT UNIQUE NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  rider_id BIGINT NOT NULL REFERENCES riders(id),
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS receipt_print_logs (
+  id BIGSERIAL PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  receipt_type VARCHAR(30) NOT NULL,
+  printed_by BIGINT REFERENCES staff(id),
+  printed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
