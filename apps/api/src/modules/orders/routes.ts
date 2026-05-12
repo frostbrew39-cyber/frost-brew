@@ -6,6 +6,18 @@ import { getIo } from "../../realtime/socket";
 
 export const ordersRouter = Router();
 
+type ColumnInfo = { column_name: string };
+async function getOrdersColumns() {
+  const result = await pool.query(
+    `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'orders'
+    `
+  );
+  return new Set((result.rows as ColumnInfo[]).map((r) => r.column_name));
+}
+
 async function ensureOrdersSchema() {
   if (!pool) throw new Error("Database not configured");
   await pool.query(`CREATE TABLE IF NOT EXISTS customer_addresses (
@@ -25,6 +37,7 @@ async function ensureOrdersSchema() {
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(6,4) DEFAULT 0`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30)`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancellation_reason TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS items_json JSONB`);
 }
 
 ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER", "WAITER"), async (req, res) => {
@@ -81,11 +94,21 @@ ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER
       const seq = await client.query("SELECT COALESCE(MAX(id), 1000) + 1 AS next_id FROM orders");
       const nextId = Number(seq.rows[0].next_id);
       const orderNo = `FB-${nextId}`;
+      const orderCols = await getOrdersColumns();
+      const insertCols = ["branch_id", "order_no", "customer_id", "channel", "status", "placed_by_staff_id", "notes"];
+      const insertVals: any[] = [user.branchId, orderNo, finalCustomerId ?? null, parsed.data.channel, "PENDING", user.sub, parsed.data.notes ?? null];
+      if (orderCols.has("customer_name")) { insertCols.push("customer_name"); insertVals.push(finalCustomerName ?? null); }
+      if (orderCols.has("customer_phone")) { insertCols.push("customer_phone"); insertVals.push(parsed.data.customerPhone ?? null); }
+      if (orderCols.has("customer_address")) { insertCols.push("customer_address"); insertVals.push(parsed.data.customerAddress ?? null); }
+      if (orderCols.has("tax_rate")) { insertCols.push("tax_rate"); insertVals.push(parsed.data.taxRate || 0); }
+      if (orderCols.has("payment_method")) { insertCols.push("payment_method"); insertVals.push(parsed.data.paymentMethod ?? null); }
+      if (orderCols.has("items_json")) { insertCols.push("items_json"); insertVals.push(JSON.stringify(parsed.data.items)); }
+      const placeholders = insertVals.map((_, i) => `$${i + 1}`).join(",");
       const created = await client.query(
-        `INSERT INTO orders (branch_id, order_no, customer_id, channel, status, placed_by_staff_id, notes, customer_name, customer_phone, customer_address, tax_rate)
-         VALUES ($1,$2,$3,$4,'PENDING',$5,$6,$7,$8,$9,$10)
+        `INSERT INTO orders (${insertCols.join(",")})
+         VALUES (${placeholders})
          RETURNING id, order_no, branch_id, customer_id, channel, status, placed_by_staff_id, placed_at, notes, tax_rate`,
-        [user.branchId, orderNo, finalCustomerId ?? null, parsed.data.channel, user.sub, parsed.data.notes ?? null, finalCustomerName ?? null, parsed.data.customerPhone ?? null, parsed.data.customerAddress ?? null, parsed.data.taxRate || 0]
+        insertVals
       );
       for (const item of parsed.data.items) {
         const unitPrice = item.unitPrice || 0;
@@ -116,12 +139,14 @@ ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER
       };
     } catch (e) {
       await client.query("ROLLBACK");
+      console.error(e);
       throw e;
     } finally {
       client.release();
     }
-  } catch (e: any) {
-    return res.status(500).json({ message: e?.message || "Failed to create order" });
+  } catch (error: any) {
+    console.error(error);
+    return res.status(500).json({ message: error?.message || "Failed to create order" });
   }
   const io = getIo();
   io.emit("order.created", order);
