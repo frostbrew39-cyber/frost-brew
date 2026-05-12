@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_V1_URL, apiUrl, createPosSocket } from "./config";
+import { API_V1_URL, apiUrl } from "./config";
 import { OrderTimerBadge } from "./components/OrderTimerBadge";
 import { CheckoutModal } from "./components/CheckoutModal";
 import { KDSBoard } from "./components/KDSBoard";
@@ -19,7 +19,6 @@ import { LoginScreen } from "./components/LoginScreen";
 import { TableGrid } from "./components/TableGrid";
 
 const API = API_V1_URL; // legacy alias; prefer apiUrl(path) for requests
-const socket = createPosSocket();
 
 type Tab = "dashboard" | "tables" | "pos" | "orders" | "kds" | "inventory" | "staff" | "attendance" | "delivery" | "analytics" | "fbr" | "settings" | "menu" | "customers";
 type OrderStatus = "PENDING" | "PREPARING" | "READY" | "OUT_FOR_DELIVERY" | "COMPLETED" | "CANCELLED" | "FAILED_DELIVERY";
@@ -135,12 +134,16 @@ export default function AppShell() {
   };
 
   useEffect(() => {
-    if (isAuthenticated && token) {
-      fetch(apiUrl("/orders"), { headers: { Authorization: `Bearer ${token}` } })
+    if (!isAuthenticated || !token) return;
+    const fetchOrders = () => {
+      fetch(apiUrl("/orders?active=1"), { headers: { Authorization: `Bearer ${token}` } })
         .then((res) => res.json())
         .then((ordersData) => setOrders(Array.isArray(ordersData) ? ordersData : []))
         .catch((err) => console.error("Failed to load orders:", err));
-    }
+    };
+    fetchOrders();
+    const interval = setInterval(fetchOrders, 5000);
+    return () => clearInterval(interval);
   }, [isAuthenticated, token]);
 
   useEffect(() => {
@@ -179,25 +182,7 @@ export default function AppShell() {
     return () => clearInterval(interval);
   }, [isAuthenticated, token, tab]);
 
-  useEffect(() => {
-    socket.on("order.created", (order: any) => {
-      setOrders(prev => [order, ...prev]);
-    });
-    
-    socket.on("order.status.changed", (updatedOrder: any) => {
-      setOrders(prev => prev.map(o => o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o));
-    });
-
-    socket.on("order.updated", (updatedOrder: any) => {
-      setOrders(prev => prev.map(o => (o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o)));
-    });
-
-    return () => {
-      socket.off("order.created");
-      socket.off("order.status.changed");
-      socket.off("order.updated");
-    };
-  }, []);
+  /* Socket.io disabled — using HTTP polling instead (see intervals above) */
 
   useEffect(() => {
     if (!isAuthenticated) return;

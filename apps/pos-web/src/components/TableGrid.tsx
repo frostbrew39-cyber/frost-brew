@@ -43,9 +43,8 @@ export function TableGrid({
       return map;
     }
     const map: Record<string, { orderId: number; orderNo: string }> = {};
-    const active = new Set(["PENDING", "PREPARING", "READY", "OUT_FOR_DELIVERY"]);
     for (const o of orders) {
-      if (!o.status || !active.has(o.status)) continue;
+      if (o.status !== "PENDING") continue;
       const tidRaw = (o.tableNumber && String(o.tableNumber).trim().toUpperCase()) || parseTableTag(o.notes);
       const tid = tidRaw || "";
       if (tid && tid.startsWith("T")) map[tid] = { orderId: o.id, orderNo: o.orderNo || `#${o.id}` };
@@ -68,7 +67,10 @@ export function TableGrid({
       >
         {tableIds.map((tid) => {
           const occ = occupancy[tid];
-          const occupied = !!occ;
+          // Find the slot from API if provided
+          const apiSlot = tablesFromApi?.find(s => s.tableId.toUpperCase() === tid);
+          const occupied = !!occ || (apiSlot?.status === 'PENDING') || apiSlot?.occupied;
+          console.log('Grid Debug - Table:', tid, 'Matching Order:', orders.find(o => (o.tableNumber || '').toUpperCase() === tid), 'API Slot:', apiSlot);
           return (
             <button
               key={tid}
