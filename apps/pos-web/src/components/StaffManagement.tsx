@@ -78,78 +78,121 @@ export function StaffManagement() {
 
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <form className="glass-panel" onSubmit={handleSubmit} style={{ width: 'min(600px, 94vw)', padding: 'clamp(16px, 4vw, 32px)', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <h3 style={{ margin: 0 }}>{editingId ? "Edit Staff Member" : "New Staff Member"}</h3>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Full Name</label>
-                <input required value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Username</label>
-                <input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
-              </div>
+          <form
+            className="glass-panel"
+            onSubmit={handleSubmit}
+            style={{
+              width: 'min(600px, 94vw)',
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            {/* Header stays visible; body below is the scroll container */}
+            <div
+              style={{
+                padding: 'clamp(16px, 4vw, 32px)',
+                paddingBottom: '12px',
+                borderBottom: '1px solid var(--border-glass)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+                flex: '0 0 auto'
+              }}
+            >
+              <h3 style={{ margin: 0 }}>{editingId ? "Edit Staff Member" : "New Staff Member"}</h3>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '24px', cursor: 'pointer', lineHeight: 1 }}
+                aria-label="Close"
+              >
+                ×
+              </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Role</label>
-                <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-dark)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }}>
-                  <option value="CASHIER">Cashier</option>
-                  <option value="WAITER">Waiter / Order taker</option>
-                  <option value="KITCHEN">Kitchen Staff</option>
-                  <option value="MANAGER">Manager</option>
-                  <option value="DELIVERY">Delivery Rider</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Monthly Salary (Rs)</label>
-                <input required type="number" value={formData.salaryMonthly} onChange={e => setFormData({...formData, salaryMonthly: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
-              </div>
-            </div>
+            <div
+              style={{
+                flex: '1 1 auto',
+                overflowY: 'auto',
+                padding: 'clamp(16px, 4vw, 32px)',
+                paddingTop: '24px' // ~= pt-6 so first fields never hide under header
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Full Name</label>
+                    <input required value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Username</label>
+                    <input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
+                  </div>
+                </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Password</label>
-                <input required={!editingId} type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder={editingId ? "Leave blank to keep current" : "Enter password"} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Join Date</label>
-                <input required type="date" value={formData.joinDate} onChange={e => setFormData({...formData, joinDate: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
-              </div>
-            </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Role</label>
+                    <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-dark)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }}>
+                      <option value="CASHIER">Cashier</option>
+                      <option value="WAITER">Waiter / Order taker</option>
+                      <option value="KITCHEN">Kitchen Staff</option>
+                      <option value="MANAGER">Manager</option>
+                      <option value="DELIVERY">Delivery Rider</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Monthly Salary (Rs)</label>
+                    <input required type="number" value={formData.salaryMonthly} onChange={e => setFormData({...formData, salaryMonthly: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
+                  </div>
+                </div>
 
-            <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '16px', marginTop: '8px' }}>
-              <label style={{ display: 'block', marginBottom: '12px', color: 'var(--accent-blue)', fontWeight: 'bold' }}>Custom Page Access</label>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>By default, staff get standard access based on their Role. If you check any boxes below, they will ONLY have access to the pages you select.</p>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                {[
-                  { id: "dashboard", label: "Dashboard" }, { id: "tables", label: "Tables" }, { id: "pos", label: "POS / Order taking" }, { id: "orders", label: "Live Orders" },
-                  { id: "kds", label: "Kitchen Display" }, { id: "menu", label: "Menu Editor" }, { id: "inventory", label: "Inventory" },
-                  { id: "delivery", label: "Delivery" }, { id: "customers", label: "Customers/Khata" }, { id: "attendance", label: "Attendance" },
-                  { id: "analytics", label: "Analytics" }, { id: "staff", label: "Staff HR" }, { id: "settings", label: "Settings" }
-                ].map(page => (
-                   <label key={page.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-main)', cursor: 'pointer' }}>
-                     <input 
-                        type="checkbox" 
-                        checked={formData.permissions?.includes(page.id) || false} 
-                        onChange={(e) => {
-                          const current = formData.permissions || [];
-                          if (e.target.checked) setFormData({ ...formData, permissions: [...current, page.id] });
-                          else setFormData({ ...formData, permissions: current.length === 1 ? null : current.filter(p => p !== page.id) });
-                        }} 
-                     />
-                     {page.label}
-                   </label>
-                ))}
-              </div>
-            </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Password</label>
+                    <input required={!editingId} type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder={editingId ? "Leave blank to keep current" : "Enter password"} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Join Date</label>
+                    <input required type="date" value={formData.joinDate} onChange={e => setFormData({...formData, joinDate: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
+                  </div>
+                </div>
 
-            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="rgb-button" style={{ flex: 1, padding: '12px' }}>Cancel</button>
-              <button type="submit" className="rgb-button filled" style={{ flex: 1, padding: '12px' }}>{editingId ? "Save Changes" : "Add Staff"}</button>
+                <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '16px', marginTop: '8px' }}>
+                  <label style={{ display: 'block', marginBottom: '12px', color: 'var(--accent-blue)', fontWeight: 'bold' }}>Custom Page Access</label>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>By default, staff get standard access based on their Role. If you check any boxes below, they will ONLY have access to the pages you select.</p>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {[
+                      { id: "dashboard", label: "Dashboard" }, { id: "tables", label: "Tables" }, { id: "pos", label: "POS / Order taking" }, { id: "orders", label: "Live Orders" },
+                      { id: "kds", label: "Kitchen Display" }, { id: "menu", label: "Menu Editor" }, { id: "inventory", label: "Inventory" },
+                      { id: "delivery", label: "Delivery" }, { id: "customers", label: "Customers/Khata" }, { id: "attendance", label: "Attendance" },
+                      { id: "analytics", label: "Analytics" }, { id: "staff", label: "Staff HR" }, { id: "settings", label: "Settings" }
+                    ].map(page => (
+                      <label key={page.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-main)', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={formData.permissions?.includes(page.id) || false} 
+                          onChange={(e) => {
+                            const current = formData.permissions || [];
+                            if (e.target.checked) setFormData({ ...formData, permissions: [...current, page.id] });
+                            else setFormData({ ...formData, permissions: current.length === 1 ? null : current.filter(p => p !== page.id) });
+                          }} 
+                        />
+                        {page.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="rgb-button" style={{ flex: 1, padding: '12px' }}>Cancel</button>
+                  <button type="submit" className="rgb-button filled" style={{ flex: 1, padding: '12px' }}>{editingId ? "Save Changes" : "Add Staff"}</button>
+                </div>
+              </div>
             </div>
           </form>
         </div>
