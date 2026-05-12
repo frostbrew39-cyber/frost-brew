@@ -65,45 +65,47 @@ export function TableGrid({
           gap: "16px"
         }}
       >
-        {tableIds.map((tid) => {
-          const occ = occupancy[tid];
-          // Find the slot from API if provided
-          const apiSlot = tablesFromApi?.find(s => s.tableId.toUpperCase() === tid);
-          const occupied = !!occ || (apiSlot?.status === 'PENDING') || apiSlot?.occupied;
-          console.log('Grid Debug - Table:', tid, 'Matching Order:', orders.find(o => (o.tableNumber || '').toUpperCase() === tid), 'API Slot:', apiSlot);
-          return (
-            <button
-              key={tid}
-              type="button"
-              className="glass-panel"
-              onClick={() =>
-                onTableClick({
-                  tableId: tid,
-                  occupied,
-                  orderId: occ?.orderId,
-                  orderNo: occ?.orderNo
-                })
-              }
-              style={{
-                cursor: "pointer",
-                padding: "20px 16px",
-                textAlign: "center",
-                border: occupied ? "2px solid var(--accent-pink)" : "1px solid var(--border-glass)",
-                background: occupied ? "rgba(255,0,127,0.08)" : "var(--bg-card)",
-                color: "var(--text-main)",
-                borderRadius: "16px",
-                minHeight: "100px",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                gap: "8px"
-              }}
-            >
-              <div style={{ fontSize: "20px", fontWeight: 800 }}>{tid}</div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{occupied ? `Open · ${occ?.orderNo}` : "Available"}</div>
-            </button>
-          );
-        })}
+                  {tableIds.map((tid) => {
+                    const occ = occupancy[tid];
+                    const apiOccupied = tablesFromApi?.some(t =>
+                      t.tableId.replace(/^T/i, '').toUpperCase() === tid.replace(/^T/i, '').toUpperCase() && t.occupied === true
+                    );
+                    const occupied = !!occ || !!apiOccupied;
+                    console.log('Grid Debug - Table:', tid, 'Matching Order:', orders.find(o => (o.tableNumber || '').toUpperCase() === tid), 'API Occupied:', apiOccupied);
+                    return (
+                      <button
+                        key={tid}
+                        type="button"
+                        className="glass-panel"
+                        onClick={() =>
+                          onTableClick({
+                            tableId: tid,
+                            occupied,
+                            orderId: occ?.orderId,
+                            orderNo: occ?.orderNo
+                          })
+                        }
+                        style={{
+                          cursor: "pointer",
+                          padding: "20px 16px",
+                          textAlign: "center",
+                          border: occupied ? "2px solid var(--accent-pink)" : "1px solid var(--border-glass)",
+                          background: occupied ? "rgba(255,0,127,0.08)" : "var(--bg-card)",
+                          color: "var(--text-main)",
+                          borderRadius: "16px",
+                          minHeight: "100px",
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "center",
+                          gap: "8px"
+                        }}
+                      >
+                        <div style={{ fontSize: "20px", fontWeight: 800 }}>{tid}</div>
+                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{occupied ? `Open · ${occ?.orderNo}` : "Available"}</div>
+                      </button>
+                    );
+                  })}
+
       </div>
     </div>
   );

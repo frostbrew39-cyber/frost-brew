@@ -26,7 +26,7 @@ tablesRouter.get("/", requireAuth, async (req, res) => {
       `
       SELECT id, order_no AS "orderNo", status, channel, table_number AS "tableNumber", notes
       FROM orders
-      WHERE status IN ('PENDING','PREPARING','READY','OUT_FOR_DELIVERY')
+      WHERE status != 'COMPLETED'
         AND ($1::bigint IS NULL OR branch_id = $1)
       ORDER BY id DESC
       `,

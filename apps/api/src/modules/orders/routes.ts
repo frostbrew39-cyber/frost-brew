@@ -103,7 +103,14 @@ ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER
   let finalCustomerId = parsed.data.customerId;
   let finalCustomerName = parsed.data.customerName;
   const tableNumberNormalized =
-    (parsed.data.tableNumber && parsed.data.tableNumber.trim()) || parseTableFromNotes(parsed.data.notes) || null;
+    (() => {
+      const tn = parsed.data.tableNumber && parsed.data.tableNumber.trim();
+      if (tn) {
+        const upper = tn.toUpperCase();
+        return upper.startsWith('T') ? upper : `T${upper}`;
+      }
+      return parseTableFromNotes(parsed.data.notes) || null;
+    })();
 
   try {
     await ensureOrdersSchema();
@@ -480,10 +487,13 @@ ordersRouter.put(
         addOptional("tax_rate", parsed.data.taxRate ?? undefined);
         addOptional("notes", parsed.data.notes ?? undefined);
         addOptional("items_json", JSON.stringify(parsed.data.items));
-        addOptional(
-          "table_number",
-          parsed.data.tableNumber != null ? String(parsed.data.tableNumber).trim() || null : undefined
-        );
+        const tableNumberNormalized = parsed.data.tableNumber != null
+  ? (function() {
+      const tn = String(parsed.data.tableNumber).trim().toUpperCase();
+      return tn.startsWith('T') ? tn : `T${tn}`;
+    })()
+  : undefined;
+addOptional("table_number", tableNumberNormalized ?? null);
 
         if (setParts.length) {
           vals.push(id);
