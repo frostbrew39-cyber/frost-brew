@@ -17,11 +17,14 @@ import { pingDb } from "./db/pool";
 export function createApp() {
   const app = express();
   const allowedOrigins = parseFrontendOrigins();
-  if (allowedOrigins?.length) {
-    app.use(cors({ origin: allowedOrigins }));
-  } else {
-    app.use(cors());
-  }
+  console.log("[API] Allowed Origins:", allowedOrigins || "*");
+  
+  app.use(cors({
+    origin: allowedOrigins || true, // true allows all origins
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  }));
   app.use(express.json());
 
   app.use("/api/v1/auth", authRouter);

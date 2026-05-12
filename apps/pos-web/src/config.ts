@@ -10,6 +10,10 @@ function devApiHost(): string {
 const rawApi = (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/+$/, "");
 const rawSocket = (import.meta.env.VITE_SOCKET_URL as string | undefined)?.trim().replace(/\/+$/, "");
 
+// URL Audit Log
+console.log("[POS Config] VITE_API_URL:", rawApi || "MISSING");
+console.log("[POS Config] VITE_SOCKET_URL:", rawSocket || "MISSING (will derive from API)");
+
 function inferSocketFromApiUrl(apiUrl: string): string {
   return apiUrl.replace(/\/api\/v1\/?$/i, "");
 }
