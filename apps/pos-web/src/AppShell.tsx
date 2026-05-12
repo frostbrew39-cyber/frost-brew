@@ -164,10 +164,19 @@ export default function AppShell() {
 
   useEffect(() => {
     if (!isAuthenticated || !token || tab !== "tables") return;
-    fetch(apiUrl("/tables"), { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((data: { tables?: unknown }) => setTableSlots(Array.isArray(data?.tables) ? (data.tables as any[]) : null))
-      .catch(() => setTableSlots(null));
+    const fetchTables = () => {
+      fetch(apiUrl("/tables"), { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((data: { tables?: unknown }) => setTableSlots(Array.isArray(data?.tables) ? (data.tables as any[]) : null))
+        .catch(() => setTableSlots(null));
+      fetch(apiUrl("/orders?active=1"), { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((ordersData) => setOrders(Array.isArray(ordersData) ? ordersData : []))
+        .catch(() => {});
+    };
+    fetchTables();
+    const interval = setInterval(fetchTables, 5000);
+    return () => clearInterval(interval);
   }, [isAuthenticated, token, tab]);
 
   useEffect(() => {

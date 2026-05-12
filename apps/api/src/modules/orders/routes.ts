@@ -230,6 +230,9 @@ ordersRouter.get("/", requireAuth, async (req, res) => {
     } else if (statusOnly) {
       params.push(statusOnly);
       extraWhere = ` AND o.status = $${params.length}`;
+    } else {
+      /* Default: only show PENDING orders */
+      extraWhere = ` AND o.status = 'PENDING'`;
     }
 
     const result = await pool!.query(
