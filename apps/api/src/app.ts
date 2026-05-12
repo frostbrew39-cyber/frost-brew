@@ -10,6 +10,8 @@ import { deliveryRouter } from "./modules/delivery/routes";
 import { analyticsRouter } from "./modules/analytics/routes";
 import { inventoryRouter } from "./modules/inventory/routes";
 import { receiptsRouter } from "./modules/receipts/routes";
+import { tablesRouter } from "./modules/tables/routes";
+import { categoriesRouter, productsRouter } from "./modules/catalog/routes";
 import { pingDb } from "./db/pool";
 
 export function createApp() {
@@ -31,10 +33,28 @@ export function createApp() {
   app.use("/api/v1/analytics", analyticsRouter);
   app.use("/api/v1/inventory", inventoryRouter);
   app.use("/api/v1/receipts", receiptsRouter);
+  app.use("/api/v1/tables", tablesRouter);
+  app.use("/api/v1/categories", categoriesRouter);
+  app.use("/api/v1/products", productsRouter);
 
   app.get("/health", async (_req, res) => {
     const db = await pingDb().catch(() => ({ connected: false, mode: "error" as const }));
     res.json({ ok: true, db });
+  });
+
+  app.use((req, res) => {
+    res.status(404).json({ message: `Route not found: ${req.method} ${req.path}` });
+  });
+
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("[API]", err instanceof Error ? err.stack || err.message : err);
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "Internal Server Error";
+    if (!res.headersSent) res.status(500).json({ message, code: "INTERNAL_ERROR" });
   });
 
   return app;

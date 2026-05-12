@@ -41,6 +41,58 @@ customersRouter.post("/", requireAuth, async (req, res) => {
   }
 });
 
+customersRouter.put("/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const schema = z.object({
+    fullName: z.string().optional(),
+    phone: z.string().optional(),
+    address: z.string().nullable().optional(),
+    loyaltyPoints: z.number().optional(),
+    khataBalance: z.number().optional()
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.flatten() });
+  try {
+    await ensureCustomersTable();
+    const r = await pool!.query(
+      `UPDATE customers SET
+        full_name = COALESCE($1, full_name),
+        phone = COALESCE($2, phone),
+        address = COALESCE($3, address),
+        loyalty_points = COALESCE($4, loyalty_points),
+        khata_balance = COALESCE($5, khata_balance)
+       WHERE id=$6
+       RETURNING id, full_name as "fullName", phone, address, loyalty_points as "loyaltyPoints", khata_balance as "khataBalance"`,
+      [
+        parsed.data.fullName ?? null,
+        parsed.data.phone ?? null,
+        parsed.data.address ?? null,
+        parsed.data.loyaltyPoints ?? null,
+        parsed.data.khataBalance ?? null,
+        id
+      ]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Not found" });
+    return res.json(r.rows[0]);
+  } catch (e: unknown) {
+    console.error(e);
+    return res.status(500).json({ message: e instanceof Error ? e.message : "Failed to update customer" });
+  }
+});
+
+customersRouter.delete("/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    await ensureCustomersTable();
+    const r = await pool!.query(`DELETE FROM customers WHERE id=$1 RETURNING id`, [id]);
+    if (!r.rows.length) return res.status(404).json({ message: "Not found" });
+    return res.status(204).end();
+  } catch (e: unknown) {
+    console.error(e);
+    return res.status(500).json({ message: e instanceof Error ? e.message : "Failed to delete customer" });
+  }
+});
+
 customersRouter.get("/", requireAuth, async (req, res) => {
   const query = req.query.query?.toString() || req.query.phone?.toString() || req.query.name?.toString();
   try {

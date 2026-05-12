@@ -12,3 +12,12 @@ server.listen(env.port, "0.0.0.0", () => {
   // eslint-disable-next-line no-console
   console.log(`API running at http://0.0.0.0:${env.port}`);
 });
+
+process.on("unhandledRejection", (reason: unknown) => {
+  // eslint-disable-next-line no-console
+  console.error("[unhandledRejection]", reason);
+});
+process.on("uncaughtException", (err: Error) => {
+  // eslint-disable-next-line no-console
+  console.error("[uncaughtException]", err?.stack || err);
+});

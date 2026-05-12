@@ -1,6 +1,12 @@
 import { useMemo } from "react";
 
-export type TableOccupancy = Record<string, { orderId: number; orderNo: string } | undefined>;
+export type TableSlot = {
+  tableId: string;
+  occupied: boolean;
+  orderId?: number;
+  orderNo?: string;
+  status?: string;
+};
 
 function parseTableTag(notes: string | undefined): string | null {
   if (!notes) return null;
@@ -10,28 +16,48 @@ function parseTableTag(notes: string | undefined): string | null {
 
 export function TableGrid({
   orders,
+  tablesFromApi,
   onTableClick
 }: {
-  orders: Array<{ id: number; orderNo?: string; status?: string; notes?: string }>;
+  orders: Array<{
+    id: number;
+    orderNo?: string;
+    status?: string;
+    notes?: string;
+    tableNumber?: string;
+  }>;
+  /** Prefer server snapshot from GET /tables when provided */
+  tablesFromApi?: TableSlot[] | null;
   onTableClick: (payload: { tableId: string; occupied: boolean; orderId?: number; orderNo?: string }) => void;
 }) {
   const tableIds = useMemo(() => Array.from({ length: 12 }, (_, i) => `T${i + 1}`), []);
 
   const occupancy = useMemo(() => {
-    const map: TableOccupancy = {};
+    if (tablesFromApi && tablesFromApi.length > 0) {
+      const map: Record<string, { orderId: number; orderNo: string }> = {};
+      for (const slot of tablesFromApi) {
+        if (slot.occupied && slot.orderId != null) {
+          map[slot.tableId.toUpperCase()] = { orderId: slot.orderId, orderNo: slot.orderNo || `#${slot.orderId}` };
+        }
+      }
+      return map;
+    }
+    const map: Record<string, { orderId: number; orderNo: string }> = {};
+    const active = new Set(["PENDING", "PREPARING", "READY", "OUT_FOR_DELIVERY"]);
     for (const o of orders) {
-      if (o.status !== "PENDING") continue;
-      const tid = parseTableTag(o.notes);
-      if (tid) map[tid] = { orderId: o.id, orderNo: o.orderNo || `#${o.id}` };
+      if (!o.status || !active.has(o.status)) continue;
+      const tidRaw = (o.tableNumber && String(o.tableNumber).trim().toUpperCase()) || parseTableTag(o.notes);
+      const tid = tidRaw || "";
+      if (tid && tid.startsWith("T")) map[tid] = { orderId: o.id, orderNo: o.orderNo || `#${o.id}` };
     }
     return map;
-  }, [orders]);
+  }, [orders, tablesFromApi]);
 
   return (
     <div className="glass-panel" style={{ padding: "24px" }}>
       <h2 style={{ marginTop: 0, marginBottom: "8px" }}>Table layout</h2>
       <p style={{ color: "var(--text-muted)", marginBottom: "24px", fontSize: "14px" }}>
-        Tap a table: waiters open the menu for open tickets; cashiers open billing for occupied tables.
+        Tap a table: waiters open the menu for open tickets; cashiers open billing for occupied tables. Active seats sync from the database.
       </p>
       <div
         style={{
@@ -72,9 +98,7 @@ export function TableGrid({
               }}
             >
               <div style={{ fontSize: "20px", fontWeight: 800 }}>{tid}</div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                {occupied ? `Open · ${occ?.orderNo}` : "Available"}
-              </div>
+              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{occupied ? `Open · ${occ?.orderNo}` : "Available"}</div>
             </button>
           );
         })}

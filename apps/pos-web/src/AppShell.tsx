@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { API_V1_URL, createPosSocket } from "./config";
+import { API_V1_URL, apiUrl, createPosSocket } from "./config";
 import { OrderTimerBadge } from "./components/OrderTimerBadge";
 import { CheckoutModal } from "./components/CheckoutModal";
 import { KDSBoard } from "./components/KDSBoard";
@@ -18,7 +18,7 @@ import { MainDashboard } from "./components/MainDashboard";
 import { LoginScreen } from "./components/LoginScreen";
 import { TableGrid } from "./components/TableGrid";
 
-const API = API_V1_URL;
+const API = API_V1_URL; // legacy alias; prefer apiUrl(path) for requests
 const socket = createPosSocket();
 
 type Tab = "dashboard" | "tables" | "pos" | "orders" | "kds" | "inventory" | "staff" | "attendance" | "delivery" | "analytics" | "fbr" | "settings" | "menu" | "customers";
@@ -100,6 +100,7 @@ export default function AppShell() {
   const [taxRate, setTaxRate] = useState(Number(localStorage.getItem('zenpos_taxRate') || 10) / 100);
   const [activeTableId, setActiveTableId] = useState<string | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
+  const [tableSlots, setTableSlots] = useState<Array<{ tableId: string; occupied: boolean; orderId?: number; orderNo?: string }> | null>(null);
 
   const isWaiter = isWaiterRole(userRole);
   const canAccessCheckout = canAccessCheckoutRole(userRole);
@@ -135,12 +136,39 @@ export default function AppShell() {
 
   useEffect(() => {
     if (isAuthenticated && token) {
-      fetch(`${API}/orders`, { headers: { Authorization: `Bearer ${token}` } })
-        .then(res => res.json())
-        .then(ordersData => setOrders(Array.isArray(ordersData) ? ordersData : []))
-        .catch(err => console.error("Failed to load orders:", err));
+      fetch(apiUrl("/orders"), { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.json())
+        .then((ordersData) => setOrders(Array.isArray(ordersData) ? ordersData : []))
+        .catch((err) => console.error("Failed to load orders:", err));
     }
   }, [isAuthenticated, token]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !token) return;
+    fetch(apiUrl("/products"), { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!Array.isArray(data) || data.length === 0) return;
+        setMenuItems(
+          data.map((row: any) => ({
+            id: Number(row.id),
+            name: String(row.name),
+            price: Number(row.price),
+            category: String(row.category || "Other"),
+            img: row.img || row.image_url || ""
+          }))
+        );
+      })
+      .catch(() => {});
+  }, [isAuthenticated, token]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !token || tab !== "tables") return;
+    fetch(apiUrl("/tables"), { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((data: { tables?: unknown }) => setTableSlots(Array.isArray(data?.tables) ? (data.tables as any[]) : null))
+      .catch(() => setTableSlots(null));
+  }, [isAuthenticated, token, tab]);
 
   useEffect(() => {
     socket.on("order.created", (order: any) => {
@@ -270,12 +298,13 @@ export default function AppShell() {
       channel,
       taxRate: taxVal,
       items: buildLineItems(),
-      notes: tableNote
+      notes: tableNote,
+      tableNumber: activeTableId
     };
 
     try {
       if (editingOrderId) {
-        const res = await fetch(`${API}/orders/${editingOrderId}`, {
+        const res = await fetch(apiUrl(`/orders/${editingOrderId}`), {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -293,7 +322,7 @@ export default function AppShell() {
         return;
       }
 
-      const res = await fetch(`${API}/orders`, {
+      const res = await fetch(apiUrl("/orders"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -334,19 +363,29 @@ export default function AppShell() {
 
     try {
       if (editingOrderId && canAccessCheckout) {
-        const res = await fetch(`${API}/orders/${editingOrderId}/settle`, {
+        const method =
+          paymentDetails.method === "CASH" ||
+          paymentDetails.method === "CARD" ||
+          paymentDetails.method === "MOBILE_WALLET" ||
+          paymentDetails.method === "KHATA"
+            ? paymentDetails.method
+            : "CASH";
+
+        const res = await fetch(apiUrl(`/orders/${editingOrderId}/settle`), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            paymentMethod: paymentDetails.method,
+            paymentMethod: method,
             customerId: paymentDetails.customerId,
             customerName: paymentDetails.customerName,
             customerPhone: paymentDetails.customerPhone,
             customerAddress: paymentDetails.customerAddress,
             taxRate: orderPayload.taxRate,
+            amountGiven: typeof paymentDetails.amountGiven === "number" ? paymentDetails.amountGiven : undefined,
+            changeReturned: typeof paymentDetails.changeReturned === "number" ? paymentDetails.changeReturned : undefined,
             items: buildLineItems()
           })
         });
@@ -369,13 +408,17 @@ export default function AppShell() {
         return;
       }
 
-      const res = await fetch(`${API}/orders`, {
+      const res = await fetch(apiUrl("/orders"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify(orderPayload)
+        body: JSON.stringify({
+          ...orderPayload,
+          paymentMethod:
+            paymentDetails.method === "WALLET" ? "MOBILE_WALLET" : paymentDetails.method === "MOBILE_WALLET" ? "MOBILE_WALLET" : paymentDetails.method
+        })
       });
 
       if (!res.ok) throw new Error("Failed to create order");
@@ -405,7 +448,7 @@ export default function AppShell() {
       return;
     }
     try {
-      const res = await fetch(`${API}/orders/${id}/status`, {
+      const res = await fetch(apiUrl(`/orders/${id}/status`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -533,6 +576,7 @@ export default function AppShell() {
         {tab === "tables" && (
           <TableGrid
             orders={orders}
+            tablesFromApi={tableSlots}
             onTableClick={({ tableId, occupied, orderId }) => {
               setActiveTableId(tableId);
               if (occupied && orderId != null) {
@@ -655,7 +699,7 @@ export default function AppShell() {
         {tab === "analytics" && <AnalyticsDashboard />}
         {tab === "staff" && <StaffManagement />}
         {tab === "attendance" && <AttendanceManagement />}
-        {tab === "menu" && <MenuManagement items={menuItems} onUpdateItems={setMenuItems} />}
+        {tab === "menu" && <MenuManagement token={token} onCatalogChanged={setMenuItems} />}
         {tab === "inventory" && <InventoryManagement />}
         {tab === "delivery" && <DeliveryConsole orders={orders} onUpdateStatus={(id, status) => {
           if (status === "FAILED_DELIVERY") {

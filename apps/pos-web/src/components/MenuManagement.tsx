@@ -1,69 +1,173 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from "react";
+import { apiUrl } from "../config";
 
-export function MenuManagement({ items, onUpdateItems }: { items: any[], onUpdateItems: (items: any[]) => void }) {
+type CatalogItem = {
+  id: number;
+  name: string;
+  price: number;
+  category: string;
+  img: string;
+  description?: string;
+};
+
+export function MenuManagement({
+  token,
+  onCatalogChanged
+}: {
+  token: string;
+  onCatalogChanged?: (items: CatalogItem[]) => void;
+}) {
+  const [items, setItems] = useState<CatalogItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<any>(null);
-
+  const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
   const [formData, setFormData] = useState({
-    name: '', category: 'Burgers', price: '', img: ''
+    name: "",
+    category: "Burgers",
+    price: "",
+    img: "",
+    description: ""
   });
 
-  const handleDelete = (id: number) => {
-    onUpdateItems(items.filter(item => item.id !== id));
+  const reload = useCallback(async () => {
+    const res = await fetch(apiUrl("/products"), {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      console.error("Failed to load products");
+      return;
+    }
+    const data = await res.json();
+    const normalized = Array.isArray(data)
+      ? (data as Record<string, unknown>[])
+          .filter((row) => row.isActive !== false)
+          .map((row: Record<string, unknown>) => ({
+            id: Number(row.id),
+            name: String(row.name),
+            price: Number(row.price),
+            category: String(row.category || "Other"),
+            img: String(row.img || "")
+          }))
+      : [];
+    setItems(normalized);
+    onCatalogChanged?.(normalized);
+  }, [token, onCatalogChanged]);
+
+  useEffect(() => {
+    if (!token) return;
+    void reload().catch((e) => console.error(e));
+  }, [token, reload]);
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Remove this menu item from the catalog?")) return;
+    try {
+      const res = await fetch(apiUrl(`/products/${id}`), {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      await reload();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete product");
+    }
   };
 
-  const handleEdit = (item: any) => {
+  const handleEdit = (item: CatalogItem) => {
     setEditingItem(item);
-    setFormData({ name: item.name, category: item.category, price: item.price.toString(), img: item.img });
+    setFormData({
+      name: item.name,
+      category: item.category,
+      price: item.price.toString(),
+      img: item.img,
+      description: item.description || ""
+    });
     setIsModalOpen(true);
   };
 
   const handleAdd = () => {
     setEditingItem(null);
-    setFormData({ name: '', category: 'Burgers', price: '', img: '' });
+    setFormData({ name: "", category: "Burgers", price: "", img: "", description: "" });
     setIsModalOpen(true);
   };
 
-  const handleImageUpload = (e: any) => {
-    const file = e.target.files[0];
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        setFormData({...formData, img: event.target?.result as string});
+        setFormData((prev) => ({ ...prev, img: event.target?.result as string }));
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleSubmit = (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingItem) {
-      onUpdateItems(items.map(item => item.id === editingItem.id ? { ...item, ...formData, price: Number(formData.price) } : item));
-    } else {
-      const newItem = { id: Date.now(), ...formData, price: Number(formData.price) };
-      onUpdateItems([...items, newItem]);
+    const body = {
+      name: formData.name,
+      price: Number(formData.price),
+      category: formData.category,
+      description: formData.description || undefined,
+      img: formData.img || undefined
+    };
+
+    try {
+      if (editingItem) {
+        const res = await fetch(apiUrl(`/products/${editingItem.id}`), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error("Update failed");
+      } else {
+        const res = await fetch(apiUrl("/products"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error("Create failed");
+      }
+      setIsModalOpen(false);
+      await reload();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save product");
     }
-    setIsModalOpen(false);
   };
 
   return (
-    <div className="glass-panel" style={{ padding: '24px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+    <div className="glass-panel" style={{ padding: "24px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "24px" }}>
         <h2 style={{ margin: 0 }}>Menu Management</h2>
-        <button className="rgb-button" onClick={handleAdd} style={{ padding: '8px 16px', fontSize: '14px', width: 'auto' }}>+ Add Menu Item</button>
+        <button className="rgb-button" onClick={handleAdd} style={{ padding: "8px 16px", fontSize: "14px", width: "auto" }}>
+          + Add Menu Item
+        </button>
       </div>
 
       {isModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <form className="glass-panel" onSubmit={handleSubmit} style={{ width: 'min(400px, 92vw)', padding: 'clamp(16px, 4vw, 32px)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <h3 style={{ margin: 0 }}>{editingItem ? 'Edit Item' : 'New Menu Item'}</h3>
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.8)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+        >
+          <form className="glass-panel" onSubmit={handleSubmit} style={{ width: "min(400px, 92vw)", padding: "clamp(16px, 4vw, 32px)", display: "flex", flexDirection: "column", gap: "16px" }}>
+            <h3 style={{ margin: 0 }}>{editingItem ? "Edit Item" : "New Menu Item"}</h3>
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Name</label>
-              <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
+              <label style={{ display: "block", marginBottom: "8px", color: "var(--text-muted)" }}>Name</label>
+              <input required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} style={{ width: "100%", padding: "12px", background: "var(--bg-card)", border: "1px solid var(--border-glass)", color: "var(--text-main)", borderRadius: "8px", outline: "none" }} />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Category</label>
-              <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-dark)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }}>
+              <label style={{ display: "block", marginBottom: "8px", color: "var(--text-muted)" }}>Category</label>
+              <select value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} style={{ width: "100%", padding: "12px", background: "var(--bg-dark)", border: "1px solid var(--border-glass)", color: "var(--text-main)", borderRadius: "8px", outline: "none" }}>
                 <option>Burgers</option>
                 <option>Sides</option>
                 <option>Drinks</option>
@@ -72,46 +176,60 @@ export function MenuManagement({ items, onUpdateItems }: { items: any[], onUpdat
               </select>
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Price (Rs)</label>
-              <input required type="number" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
+              <label style={{ display: "block", marginBottom: "8px", color: "var(--text-muted)" }}>Price (Rs)</label>
+              <input required type="number" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} style={{ width: "100%", padding: "12px", background: "var(--bg-card)", border: "1px solid var(--border-glass)", color: "var(--text-main)", borderRadius: "8px", outline: "none" }} />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>Image Upload</label>
-              <input type="file" accept="image/*" onChange={handleImageUpload} style={{ width: '100%', padding: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-glass)', color: 'var(--text-main)', borderRadius: '8px', outline: 'none' }} />
-              {formData.img && <img src={formData.img} alt="Preview" style={{ width: '80px', height: '80px', marginTop: '12px', borderRadius: '8px', objectFit: 'cover' }} />}
+              <label style={{ display: "block", marginBottom: "8px", color: "var(--text-muted)" }}>Description (optional)</label>
+              <input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} style={{ width: "100%", padding: "12px", background: "var(--bg-card)", border: "1px solid var(--border-glass)", color: "var(--text-main)", borderRadius: "8px", outline: "none" }} />
             </div>
-            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="rgb-button" style={{ flex: 1, padding: '12px' }}>Cancel</button>
-              <button type="submit" className="rgb-button filled" style={{ flex: 1, padding: '12px' }}>Save</button>
+            <div>
+              <label style={{ display: "block", marginBottom: "8px", color: "var(--text-muted)" }}>Image Upload</label>
+              <input type="file" accept="image/*" onChange={handleImageUpload} style={{ width: "100%", padding: "12px", background: "var(--bg-card)", border: "1px solid var(--border-glass)", color: "var(--text-main)", borderRadius: "8px", outline: "none" }} />
+              {formData.img && <img src={formData.img} alt="Preview" style={{ width: "80px", height: "80px", marginTop: "12px", borderRadius: "8px", objectFit: "cover" }} />}
+            </div>
+            <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="rgb-button" style={{ flex: 1, padding: "12px" }}>
+                Cancel
+              </button>
+              <button type="submit" className="rgb-button filled" style={{ flex: 1, padding: "12px" }}>
+                Save
+              </button>
             </div>
           </form>
         </div>
       )}
 
-      <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+      <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse" }}>
         <thead>
-          <tr style={{ borderBottom: '1px solid var(--border-glass)', color: 'var(--text-muted)' }}>
-            <th style={{ padding: '12px 0' }}>Preview</th>
-            <th style={{ padding: '12px 0' }}>Name</th>
-            <th style={{ padding: '12px 0' }}>Category</th>
-            <th style={{ padding: '12px 0' }}>Price</th>
-            <th style={{ padding: '12px 0', textAlign: 'right' }}>Actions</th>
+          <tr style={{ borderBottom: "1px solid var(--border-glass)", color: "var(--text-muted)" }}>
+            <th style={{ padding: "12px 0" }}>Preview</th>
+            <th style={{ padding: "12px 0" }}>Name</th>
+            <th style={{ padding: "12px 0" }}>Category</th>
+            <th style={{ padding: "12px 0" }}>Price</th>
+            <th style={{ padding: "12px 0", textAlign: "right" }}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {items.map(item => (
-            <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-              <td style={{ padding: '12px 0' }}>
-                <img src={item.img} alt="" style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover' }} />
+          {items.map((item) => (
+            <tr key={item.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <td style={{ padding: "12px 0" }}>
+                <img src={item.img || ""} alt="" style={{ width: "48px", height: "48px", borderRadius: "8px", objectFit: "cover", background: "var(--bg-card)" }} />
               </td>
-              <td style={{ padding: '16px 0', fontWeight: 600 }}>{item.name}</td>
-              <td style={{ padding: '16px 0' }}>
-                <span className="category-pill" style={{ padding: '4px 12px', fontSize: '12px' }}>{item.category}</span>
+              <td style={{ padding: "16px 0", fontWeight: 600 }}>{item.name}</td>
+              <td style={{ padding: "16px 0" }}>
+                <span className="category-pill" style={{ padding: "4px 12px", fontSize: "12px" }}>
+                  {item.category}
+                </span>
               </td>
-              <td style={{ padding: '16px 0', color: 'var(--accent-blue)', fontWeight: 'bold' }}>Rs {item.price}</td>
-              <td style={{ padding: '16px 0', textAlign: 'right', display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center', height: '100%' }}>
-                <button onClick={() => handleEdit(item)} style={{ background: 'transparent', border: '1px solid var(--border-glass)', color: 'var(--text-main)', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer' }}>Edit</button>
-                <button onClick={() => handleDelete(item.id)} style={{ background: 'transparent', border: '1px solid var(--accent-pink)', color: 'var(--accent-pink)', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer' }}>Delete</button>
+              <td style={{ padding: "16px 0", color: "var(--accent-blue)", fontWeight: "bold" }}>Rs {item.price}</td>
+              <td style={{ padding: "16px 0", textAlign: "right", display: "flex", gap: "8px", justifyContent: "flex-end", alignItems: "center", height: "100%" }}>
+                <button type="button" onClick={() => handleEdit(item)} style={{ background: "transparent", border: "1px solid var(--border-glass)", color: "var(--text-main)", padding: "6px 12px", borderRadius: "8px", cursor: "pointer" }}>
+                  Edit
+                </button>
+                <button type="button" onClick={() => handleDelete(item.id)} style={{ background: "transparent", border: "1px solid var(--accent-pink)", color: "var(--accent-pink)", padding: "6px 12px", borderRadius: "8px", cursor: "pointer" }}>
+                  Delete
+                </button>
               </td>
             </tr>
           ))}

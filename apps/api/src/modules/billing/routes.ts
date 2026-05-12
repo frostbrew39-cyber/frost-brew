@@ -52,8 +52,9 @@ billingRouter.post("/from-order/:orderId", requireAuth, allowRoles("MASTER_ADMIN
       [orderId, subtotal, taxTotal, deliveryCharges, grandTotal]
     );
     return res.status(201).json({ ...bill.rows[0], payments: [] });
-  } catch (e: any) {
-    return res.status(500).json({ message: e?.message || "Failed to create bill" });
+  } catch (e: unknown) {
+    console.error("[billing/from-order]", e);
+    return res.status(500).json({ message: e instanceof Error ? e.message : "Failed to create bill" });
   }
 });
 
@@ -87,8 +88,9 @@ billingRouter.post("/:id/payments", requireAuth, allowRoles("MASTER_ADMIN", "ADM
     );
     getIo().emit("bill.paid", rows.rows[0]);
     return res.json(rows.rows[0]);
-  } catch (e: any) {
-    return res.status(500).json({ message: e?.message || "Failed to add payment" });
+  } catch (e: unknown) {
+    console.error("[billing/payments]", e);
+    return res.status(500).json({ message: e instanceof Error ? e.message : "Failed to add payment" });
   }
 });
 

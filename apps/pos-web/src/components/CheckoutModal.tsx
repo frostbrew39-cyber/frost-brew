@@ -191,15 +191,18 @@ export function CheckoutModal({ isOpen, onClose, total, onConfirm }: CheckoutMod
           </button>
           <button 
             onClick={() => {
-              // Create mock customer on the fly if needed
               const finalCustomerId = customerData ? customerData.id : undefined;
+              const amt = amountGiven !== "" ? Number(amountGiven) : undefined;
+              const chg = paymentMethod === "CASH" && amt !== undefined ? Math.max(0, amt - total) : undefined;
               onConfirm({ 
-                method: paymentMethod, 
+                method: paymentMethod === "WALLET" ? "MOBILE_WALLET" : paymentMethod,
                 amount: total, 
                 customerId: finalCustomerId, 
                 customerName,
                 customerPhone,
-                customerAddress
+                customerAddress,
+                amountGiven: paymentMethod === "CASH" ? amt : undefined,
+                changeReturned: paymentMethod === "CASH" ? chg : undefined
               });
               setSearchQuery("");
               setCustomerPhone("");

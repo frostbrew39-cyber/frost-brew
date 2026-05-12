@@ -3,12 +3,12 @@ import { apiUrl } from "../config";
 
 export function MainDashboard() {
   const [orders, setOrders] = useState<any[]>([]);
-  const taxRate = Number(localStorage.getItem('zenpos_taxRate') || 10) / 100;
+  const taxRate = Number(localStorage.getItem("zenpos_taxRate") || 10) / 100;
 
   useEffect(() => {
-    const t = localStorage.getItem('zenpos_token');
+    const t = localStorage.getItem("zenpos_token");
     if (!t) return;
-    fetch(apiUrl("/orders"), { headers: { "Authorization": `Bearer ${t}` } })
+    fetch(apiUrl("/orders"), { headers: { Authorization: `Bearer ${t}` } })
       .then(res => res.json())
       .then(data => setOrders(Array.isArray(data) ? data : []));
   }, []);
