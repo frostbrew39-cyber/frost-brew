@@ -51,7 +51,10 @@ tablesRouter.get("/", requireAuth, async (req, res) => {
 
     const tableIds = Array.from({ length: 12 }, (_, i) => `T${i + 1}`);
     const tables = tableIds.map((tableId) => {
-      const hit = byTable[tableId];
+      const tableNum = tableId.replace(/^T/i, "");
+      // Find any order where the table number (stripped of T) matches
+      const hit = Object.entries(byTable).find(([tid]) => tid.replace(/^T/i, "") === tableNum)?.[1];
+      
       return {
         tableId,
         occupied: Boolean(hit),

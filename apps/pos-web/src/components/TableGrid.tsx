@@ -47,7 +47,7 @@ export function TableGrid({
       if (o.status !== "PENDING") continue;
       const tidRaw = (o.tableNumber && String(o.tableNumber).trim().toUpperCase()) || parseTableTag(o.notes);
       const tid = tidRaw || "";
-      if (tid && tid.startsWith("T")) map[tid] = { orderId: o.id, orderNo: o.orderNo || `#${o.id}` };
+      if (tid) map[tid] = { orderId: o.id, orderNo: o.orderNo || `#${o.id}` };
     }
     return map;
   }, [orders, tablesFromApi]);
@@ -65,13 +65,21 @@ export function TableGrid({
           gap: "16px"
         }}
       >
-                  {tableIds.map((tid) => {
-                    const occ = occupancy[tid];
-                    const apiOccupied = tablesFromApi?.some(t =>
-                      t.tableId.replace(/^T/i, '').toUpperCase() === tid.replace(/^T/i, '').toUpperCase() && t.occupied === true
-                    );
-                    const occupied = !!occ || !!apiOccupied;
-                    console.log('Grid Debug - Table:', tid, 'Matching Order:', orders.find(o => (o.tableNumber || '').toUpperCase() === tid), 'API Occupied:', apiOccupied);
+          {tableIds.map((tid) => {
+            const tableNum = tid.replace(/^T/i, "");
+            // Look up in occupancy map (prefix-blind)
+            const occ = Object.entries(occupancy).find(([key]) => key.replace(/^T/i, "") === tableNum)?.[1];
+            
+            // Look up in API data (prefix-blind)
+            const apiSlot = tablesFromApi?.find(t =>
+              t.tableId.replace(/^T/i, "").toUpperCase() === tableNum.toUpperCase()
+            );
+            
+            // User requested condition: occupied true IF API reports occupied OR status is PENDING
+            const apiOccupied = apiSlot?.occupied === true || apiSlot?.status === "PENDING";
+            const occupied = !!occ || !!apiOccupied;
+            
+            console.log('Grid Debug - Table:', tid, 'apiSlot:', apiSlot, 'apiOccupied:', apiOccupied);
                     return (
                       <button
                         key={tid}
