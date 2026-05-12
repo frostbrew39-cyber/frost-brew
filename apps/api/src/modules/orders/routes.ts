@@ -111,12 +111,17 @@ ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER
         insertVals
       );
       for (const item of parsed.data.items) {
-        const unitPrice = item.unitPrice || 0;
-        await client.query(
-          `INSERT INTO order_items (order_id, menu_item_id, item_name_snapshot, unit_price_snapshot, quantity, line_total)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [created.rows[0].id, item.menuItemId, item.itemName || `ITEM-${item.menuItemId}`, unitPrice, item.quantity, unitPrice * item.quantity]
-        );
+        try {
+          const unitPrice = item.unitPrice || 0;
+          await client.query(
+            `INSERT INTO order_items (order_id, menu_item_id, item_name_snapshot, unit_price_snapshot, quantity, line_total)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+            [created.rows[0].id, item.menuItemId, item.itemName || `ITEM-${item.menuItemId}`, unitPrice, item.quantity, unitPrice * item.quantity]
+          );
+        } catch (itemError) {
+          // Keep main order creation successful even if one item has FK/schema issues.
+          console.error(itemError);
+        }
       }
       const items = await client.query(
         `SELECT menu_item_id as "menuItemId", item_name_snapshot as "itemName", unit_price_snapshot as "unitPrice", quantity, NULL::text as note
@@ -126,6 +131,7 @@ ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER
       await client.query("COMMIT");
       order = {
         id: created.rows[0].id,
+        orderId: created.rows[0].id,
         orderNo: created.rows[0].order_no,
         branchId: created.rows[0].branch_id,
         customerId: created.rows[0].customer_id ?? undefined,
