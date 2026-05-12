@@ -198,22 +198,147 @@ staffRouter.put("/:id", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), async 
     username: z.string().optional(),
     role: z.string().optional(),
     password: z.string().optional(),
-    permissions: z.array(z.string()).optional()
+    permissions: z.array(z.string()).optional(),
+    salaryMonthly: z.union([z.string(), z.number()]).optional(),
+    joinDate: z.string().optional(),
+    blocked: z.boolean().optional(),
+    isActive: z.boolean().optional()
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: parsed.error.flatten() });
 
-  const staff = store.users.find((u) => u.id === Number(req.params.id));
-  if (!staff) return res.status(404).json({ message: "Not found" });
-  
-  if (parsed.data.fullName) staff.fullName = parsed.data.fullName;
-  if (parsed.data.username) staff.username = parsed.data.username;
-  if (parsed.data.role) staff.role = parsed.data.role as any;
-  if (parsed.data.password) staff.password = parsed.data.password;
-  if (parsed.data.permissions !== undefined) staff.permissions = parsed.data.permissions;
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
 
-  saveStore();
-  return res.json({ success: true, staff });
+    const cols = await getStaffColumns();
+    const colSet = new Set(cols.map((c) => c.column_name));
+    const permissionsCol = cols.find((c) => c.column_name === "permissions");
+
+    const setSql: string[] = [];
+    const values: any[] = [];
+    const push = (fragment: string, value: any) => {
+      values.push(value);
+      setSql.push(fragment.replace(/\$X/g, `$${values.length}`));
+    };
+
+    if (parsed.data.fullName !== undefined && colSet.has("full_name")) push(`full_name = $X`, parsed.data.fullName);
+    if (parsed.data.username !== undefined && colSet.has("username")) push(`username = $X`, parsed.data.username);
+    if (parsed.data.role !== undefined && colSet.has("role")) push(`role = $X`, parsed.data.role);
+    if (parsed.data.password !== undefined && colSet.has("password")) push(`password = $X`, parsed.data.password);
+
+    if (parsed.data.salaryMonthly !== undefined && colSet.has("salary_monthly")) {
+      const v = parsed.data.salaryMonthly === "" ? null : Number(parsed.data.salaryMonthly);
+      push(`salary_monthly = $X`, v);
+    }
+
+    if (parsed.data.joinDate !== undefined && colSet.has("join_date")) push(`join_date = $X`, parsed.data.joinDate);
+
+    if (parsed.data.blocked !== undefined && colSet.has("is_blocked")) push(`is_blocked = $X`, parsed.data.blocked);
+    if (parsed.data.isActive !== undefined && colSet.has("is_active")) push(`is_active = $X`, parsed.data.isActive);
+
+    if (parsed.data.permissions !== undefined && colSet.has("permissions")) {
+      const perms = parsed.data.permissions ?? null;
+      if (permissionsCol?.udt_name === "jsonb") {
+        values.push(perms == null ? null : JSON.stringify(perms));
+        setSql.push(`permissions = $${values.length}::jsonb`);
+      } else if (permissionsCol?.udt_name === "_text" || permissionsCol?.data_type === "ARRAY") {
+        values.push(perms);
+        setSql.push(`permissions = $${values.length}::text[]`);
+      } else {
+        values.push(perms == null ? null : JSON.stringify(perms));
+        setSql.push(`permissions = $${values.length}`);
+      }
+    }
+
+    if (setSql.length === 0) return res.status(400).json({ message: "No valid fields to update" });
+
+    values.push(id);
+    const hasJoinDate = colSet.has("join_date");
+    const hasPermissions = colSet.has("permissions");
+
+    const result = await pool.query(
+      `
+      UPDATE staff
+      SET ${setSql.join(", ")}
+      WHERE id = $${values.length}
+      RETURNING
+        id,
+        full_name,
+        username,
+        role,
+        branch_id,
+        is_blocked,
+        is_active,
+        salary_monthly
+        ${hasJoinDate ? ", join_date" : ""}
+        ${hasPermissions ? ", permissions" : ""}
+      `,
+      values
+    );
+
+    const row: any = result.rows?.[0];
+    if (!row) return res.status(404).json({ message: "Not found" });
+
+    return res.json({
+      success: true,
+      staff: {
+        id: Number(row.id),
+        fullName: row.full_name,
+        username: row.username,
+        role: row.role,
+        branchId: row.branch_id == null ? undefined : Number(row.branch_id),
+        blocked: Boolean(row.is_blocked),
+        isActive: row.is_active == null ? undefined : Boolean(row.is_active),
+        salaryMonthly: row.salary_monthly == null ? undefined : Number(row.salary_monthly),
+        joinDate: row.join_date ? String(row.join_date).slice(0, 10) : undefined,
+        permissions: row.permissions ?? undefined
+      }
+    });
+  } catch (e: any) {
+    const msg = typeof e?.message === "string" ? e.message : "Failed to update staff";
+    return res.status(500).json({ message: msg });
+  }
+});
+
+staffRouter.delete("/:id", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+
+    const cols = await getStaffColumns();
+    const colSet = new Set(cols.map((c) => c.column_name));
+
+    // Prefer soft-delete if the schema supports it
+    if (colSet.has("is_active")) {
+      const result = await pool.query(
+        `
+        UPDATE staff
+        SET is_active = FALSE
+        WHERE id = $1
+        RETURNING id
+        `,
+        [id]
+      );
+      if (!result.rows?.[0]) return res.status(404).json({ message: "Not found" });
+      return res.json({ success: true });
+    }
+
+    const result = await pool.query(
+      `
+      DELETE FROM staff
+      WHERE id = $1
+      RETURNING id
+      `,
+      [id]
+    );
+
+    if (!result.rows?.[0]) return res.status(404).json({ message: "Not found" });
+    return res.json({ success: true });
+  } catch (e: any) {
+    const msg = typeof e?.message === "string" ? e.message : "Failed to delete staff";
+    return res.status(500).json({ message: msg });
+  }
 });
 
 staffRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), async (req, res) => {
