@@ -2,14 +2,39 @@ import { Router } from "express";
 import { z } from "zod";
 import { allowRoles, requireAuth } from "../../middleware/auth";
 import { pool } from "../../db/pool";
-import { store } from "../../repositories/memoryStore";
 import { getIo } from "../../realtime/socket";
 
 export const billingRouter = Router();
 
+async function ensureBillingSchema() {
+  if (!pool) throw new Error("Database not configured");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bills (
+      id BIGSERIAL PRIMARY KEY,
+      order_id BIGINT UNIQUE NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      subtotal NUMERIC(12,2) NOT NULL,
+      discount_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+      tax_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+      tip_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+      delivery_charges NUMERIC(12,2) NOT NULL DEFAULT 0,
+      grand_total NUMERIC(12,2) NOT NULL
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_payments (
+      id BIGSERIAL PRIMARY KEY,
+      bill_id BIGINT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      method VARCHAR(30) NOT NULL,
+      amount NUMERIC(12,2) NOT NULL,
+      paid_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
 billingRouter.post("/from-order/:orderId", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER"), async (req, res) => {
   const orderId = Number(req.params.orderId);
-  if (pool) {
+  try {
+    await ensureBillingSchema();
     const exists = await pool.query("SELECT id FROM bills WHERE order_id=$1", [orderId]);
     if (exists.rows.length) return res.status(400).json({ message: "Bill already exists" });
     const orderResult = await pool.query("SELECT channel FROM orders WHERE id=$1", [orderId]);
@@ -27,17 +52,9 @@ billingRouter.post("/from-order/:orderId", requireAuth, allowRoles("MASTER_ADMIN
       [orderId, subtotal, taxTotal, deliveryCharges, grandTotal]
     );
     return res.status(201).json({ ...bill.rows[0], payments: [] });
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to create bill" });
   }
-  const order = store.orders.get(orderId);
-  if (!order) return res.status(404).json({ message: "Order not found" });
-  if (Array.from(store.bills.values()).some((b) => b.orderId === order.id)) return res.status(400).json({ message: "Bill already exists" });
-  store.seq.bill += 1;
-  const subtotal = order.items.reduce((sum: number, item: { quantity: number }) => sum + item.quantity * 10, 0);
-  const taxTotal = subtotal * 0.16;
-  const deliveryCharges = order.channel === "DELIVERY" ? 5 : 0;
-  const bill = { id: store.seq.bill, orderId: order.id, subtotal, discountTotal: 0, taxTotal, tipTotal: 0, deliveryCharges, grandTotal: subtotal + taxTotal + deliveryCharges, payments: [] as Array<{ method: "CASH" | "CARD" | "MOBILE_WALLET" | "KHATA"; amount: number }> };
-  store.bills.set(bill.id, bill);
-  return res.status(201).json(bill);
 });
 
 billingRouter.post("/:id/payments", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER"), async (req, res) => {
@@ -50,7 +67,8 @@ billingRouter.post("/:id/payments", requireAuth, allowRoles("MASTER_ADMIN", "ADM
   if (!parsed.success) return res.status(400).json({ message: parsed.error.flatten() });
 
   const billId = Number(req.params.id);
-  if (pool) {
+  try {
+    await ensureBillingSchema();
     const billResult = await pool.query("SELECT id, order_id FROM bills WHERE id=$1", [billId]);
     if (!billResult.rows.length) return res.status(404).json({ message: "Bill not found" });
     await pool.query("INSERT INTO bill_payments (bill_id, method, amount) VALUES ($1,$2,$3)", [billId, parsed.data.method, parsed.data.amount]);
@@ -69,15 +87,8 @@ billingRouter.post("/:id/payments", requireAuth, allowRoles("MASTER_ADMIN", "ADM
     );
     getIo().emit("bill.paid", rows.rows[0]);
     return res.json(rows.rows[0]);
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to add payment" });
   }
-  const bill = store.bills.get(billId);
-  if (!bill) return res.status(404).json({ message: "Bill not found" });
-  bill.payments.push({ method: parsed.data.method, amount: parsed.data.amount });
-  if (parsed.data.method === "KHATA" && parsed.data.customerId) {
-    const customer = store.customers.get(parsed.data.customerId);
-    if (customer) customer.khataBalance += parsed.data.amount;
-  }
-  getIo().emit("bill.paid", bill);
-  return res.json(bill);
 });
 

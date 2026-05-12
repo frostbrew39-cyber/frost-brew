@@ -2,10 +2,30 @@ import { Router } from "express";
 import { z } from "zod";
 import { allowRoles, requireAuth } from "../../middleware/auth";
 import { pool } from "../../db/pool";
-import { store, saveStore } from "../../repositories/memoryStore";
 import { getIo } from "../../realtime/socket";
 
 export const ordersRouter = Router();
+
+async function ensureOrdersSchema() {
+  if (!pool) throw new Error("Database not configured");
+  await pool.query(`CREATE TABLE IF NOT EXISTS customer_addresses (
+    id BIGSERIAL PRIMARY KEY,
+    customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    full_address TEXT,
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS username VARCHAR(120)`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS password VARCHAR(255)`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS permissions JSONB`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_name VARCHAR(160)`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(60)`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(6,4) DEFAULT 0`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30)`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancellation_reason TEXT`);
+}
 
 ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER", "WAITER"), async (req, res) => {
   const bodySchema = z.object({
@@ -36,8 +56,8 @@ ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER
   let order: any;
   let finalCustomerId = parsed.data.customerId;
   let finalCustomerName = parsed.data.customerName;
-
-  if (pool) {
+  try {
+    await ensureOrdersSchema();
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -100,67 +120,8 @@ ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER
     } finally {
       client.release();
     }
-  } else {
-    // Memory store fallback
-    if (!finalCustomerId && parsed.data.customerPhone && parsed.data.customerName) {
-      const existing = Array.from(store.customers.values()).find(c => c.phone === parsed.data.customerPhone);
-      if (existing) {
-        finalCustomerId = existing.id;
-        finalCustomerName = existing.fullName;
-      } else {
-        finalCustomerId = store.customers.size + 1;
-        finalCustomerName = parsed.data.customerName;
-        store.customers.set(finalCustomerId, {
-          id: finalCustomerId,
-          fullName: finalCustomerName,
-          phone: parsed.data.customerPhone,
-          address: parsed.data.customerAddress || "",
-          loyaltyPoints: 0,
-          khataBalance: 0
-        });
-      }
-    }
-
-    store.seq.order += 1;
-    order = {
-      id: store.seq.order,
-      orderNo: `FB-${store.seq.order}`,
-      branchId: user.branchId,
-      customerId: finalCustomerId,
-      customerName: finalCustomerName,
-      customerPhone: parsed.data.customerPhone,
-      customerAddress: parsed.data.customerAddress,
-      channel: parsed.data.channel,
-      status: "PENDING" as const,
-      placedByStaffId: user.sub,
-      placedByStaffName: store.users.find(u => u.id === user.sub)?.fullName || "Staff",
-      placedAt: new Date().toISOString(),
-      notes: parsed.data.notes,
-      taxRate: parsed.data.taxRate || 0,
-      items: parsed.data.items,
-      paymentMethod: parsed.data.paymentMethod
-    };
-
-    // Inventory Deduction (Memory fallback)
-    for (const item of parsed.data.items) {
-      // Very basic deduction: assuming 1 menu item = 1 unit of some primary inventory item for simplicity
-      const invItem = store.inventory.get(item.menuItemId);
-      if (invItem) {
-        invItem.currentStock -= item.quantity;
-      }
-    }
-
-    // Khata Update (Memory fallback)
-    if (parsed.data.paymentMethod === "KHATA" && parsed.data.customerId) {
-      const customer = store.customers.get(parsed.data.customerId);
-      if (customer) {
-        const totalAmount = parsed.data.items.reduce((sum, i) => sum + ((i.unitPrice || 0) * i.quantity), 0);
-        customer.khataBalance += totalAmount;
-      }
-    }
-
-    store.orders.set(order.id, order);
-    saveStore();
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to create order" });
   }
   const io = getIo();
   io.emit("order.created", order);
@@ -169,8 +130,8 @@ ordersRouter.post("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN", "CASHIER
 });
 
 ordersRouter.get("/", requireAuth, async (_req, res) => {
-  if (pool) {
-    try { await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(6,4) DEFAULT 0"); } catch(e) {}
+  try {
+    await ensureOrdersSchema();
     const result = await pool.query(
       `SELECT o.id, o.order_no as "orderNo", o.channel, o.status, o.placed_at as "placedAt", o.tax_rate as "taxRate", o.payment_method as "paymentMethod",
               COALESCE(
@@ -185,8 +146,9 @@ ordersRouter.get("/", requireAuth, async (_req, res) => {
        LIMIT 100`
     );
     return res.json(result.rows);
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to fetch orders" });
   }
-  return res.json(Array.from(store.orders.values()));
 });
 
 const orderItemsSchema = z.array(
@@ -218,38 +180,89 @@ ordersRouter.post(
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.flatten() });
 
-    if (pool) {
-      return res.status(501).json({ message: "Settle on PostgreSQL is not implemented in this build; use in-memory demo mode." });
-    }
+    try {
+      await ensureOrdersSchema();
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const current = await client.query(`SELECT id, status FROM orders WHERE id=$1`, [id]);
+        if (!current.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ message: "Order not found" });
+        }
+        if (current.rows[0].status !== "PENDING") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "Only pending orders can be settled" });
+        }
 
-    const order = store.orders.get(id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    if (order.status !== "PENDING") return res.status(400).json({ message: "Only pending orders can be settled" });
+        if (parsed.data.items) {
+          await client.query(`DELETE FROM order_items WHERE order_id=$1`, [id]);
+          for (const item of parsed.data.items) {
+            const unitPrice = item.unitPrice || 0;
+            await client.query(
+              `INSERT INTO order_items (order_id, menu_item_id, item_name_snapshot, unit_price_snapshot, quantity, line_total)
+               VALUES ($1,$2,$3,$4,$5,$6)`,
+              [id, item.menuItemId, item.itemName || `ITEM-${item.menuItemId}`, unitPrice, item.quantity, unitPrice * item.quantity]
+            );
+          }
+        }
 
-    if (parsed.data.items) {
-      order.items = parsed.data.items as any;
-    }
-    order.paymentMethod = parsed.data.paymentMethod;
-    if (parsed.data.taxRate !== undefined) order.taxRate = parsed.data.taxRate;
-    if (parsed.data.customerId !== undefined) order.customerId = parsed.data.customerId;
-    if (parsed.data.customerName !== undefined) order.customerName = parsed.data.customerName;
-    if (parsed.data.customerPhone !== undefined) order.customerPhone = parsed.data.customerPhone;
-    if (parsed.data.customerAddress !== undefined) order.customerAddress = parsed.data.customerAddress;
+        await client.query(
+          `UPDATE orders
+           SET status='COMPLETED',
+               completed_at=NOW(),
+               payment_method=COALESCE($1,payment_method),
+               tax_rate=COALESCE($2,tax_rate),
+               customer_id=COALESCE($3,customer_id),
+               customer_name=COALESCE($4,customer_name),
+               customer_phone=COALESCE($5,customer_phone),
+               customer_address=COALESCE($6,customer_address)
+           WHERE id=$7`,
+          [
+            parsed.data.paymentMethod,
+            parsed.data.taxRate ?? null,
+            parsed.data.customerId ?? null,
+            parsed.data.customerName ?? null,
+            parsed.data.customerPhone ?? null,
+            parsed.data.customerAddress ?? null,
+            id
+          ]
+        );
 
-    order.status = "COMPLETED";
-    order.completedAt = new Date().toISOString();
+        if (parsed.data.paymentMethod === "KHATA" && parsed.data.customerId) {
+          const sum = await client.query(`SELECT COALESCE(SUM(line_total),0) as total FROM order_items WHERE order_id=$1`, [id]);
+          await client.query(`UPDATE customers SET khata_balance = COALESCE(khata_balance,0) + $1 WHERE id=$2`, [Number(sum.rows[0].total), parsed.data.customerId]);
+        }
 
-    if (parsed.data.paymentMethod === "KHATA" && parsed.data.customerId) {
-      const customer = store.customers.get(parsed.data.customerId);
-      if (customer) {
-        const totalAmount = order.items.reduce((sum: number, i: any) => sum + ((i.unitPrice || 0) * i.quantity), 0);
-        customer.khataBalance += totalAmount;
+        const result = await client.query(
+          `SELECT o.id, o.order_no as "orderNo", o.branch_id as "branchId", o.customer_id as "customerId",
+                  o.customer_name as "customerName", o.customer_phone as "customerPhone", o.customer_address as "customerAddress",
+                  o.channel, o.status, o.placed_by_staff_id as "placedByStaffId", o.placed_at as "placedAt", o.completed_at as "completedAt",
+                  o.notes, o.tax_rate as "taxRate", o.payment_method as "paymentMethod",
+                  COALESCE(
+                    json_agg(json_build_object('menuItemId', oi.menu_item_id, 'itemName', oi.item_name_snapshot, 'unitPrice', oi.unit_price_snapshot, 'quantity', oi.quantity))
+                    FILTER (WHERE oi.id IS NOT NULL),
+                    '[]'
+                  ) as items
+           FROM orders o
+           LEFT JOIN order_items oi ON oi.order_id = o.id
+           WHERE o.id=$1
+           GROUP BY o.id`,
+          [id]
+        );
+        await client.query("COMMIT");
+        const order = result.rows[0];
+        getIo().emit("order.status.changed", order);
+        return res.json(order);
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
       }
+    } catch (e: any) {
+      return res.status(500).json({ message: e?.message || "Failed to settle order" });
     }
-
-    saveStore();
-    getIo().emit("order.status.changed", order);
-    return res.json(order);
   }
 );
 
@@ -268,22 +281,64 @@ ordersRouter.put(
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.flatten() });
 
-    if (pool) {
-      return res.status(501).json({ message: "Order item updates on PostgreSQL are not implemented in this build; use in-memory demo mode." });
+    try {
+      await ensureOrdersSchema();
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const current = await client.query(`SELECT id, status FROM orders WHERE id=$1`, [id]);
+        if (!current.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ message: "Order not found" });
+        }
+        if (current.rows[0].status !== "PENDING") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "Only pending orders can be updated" });
+        }
+
+        await client.query(
+          `UPDATE orders
+           SET channel=COALESCE($1, channel), tax_rate=COALESCE($2, tax_rate), notes=COALESCE($3, notes)
+           WHERE id=$4`,
+          [parsed.data.channel ?? null, parsed.data.taxRate ?? null, parsed.data.notes ?? null, id]
+        );
+
+        await client.query(`DELETE FROM order_items WHERE order_id=$1`, [id]);
+        for (const item of parsed.data.items) {
+          const unitPrice = item.unitPrice || 0;
+          await client.query(
+            `INSERT INTO order_items (order_id, menu_item_id, item_name_snapshot, unit_price_snapshot, quantity, line_total)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+            [id, item.menuItemId, item.itemName || `ITEM-${item.menuItemId}`, unitPrice, item.quantity, unitPrice * item.quantity]
+          );
+        }
+
+        const result = await client.query(
+          `SELECT o.id, o.order_no as "orderNo", o.channel, o.status, o.placed_at as "placedAt", o.tax_rate as "taxRate", o.notes,
+                  COALESCE(
+                    json_agg(json_build_object('menuItemId', oi.menu_item_id, 'itemName', oi.item_name_snapshot, 'unitPrice', oi.unit_price_snapshot, 'quantity', oi.quantity))
+                    FILTER (WHERE oi.id IS NOT NULL),
+                    '[]'
+                  ) as items
+           FROM orders o
+           LEFT JOIN order_items oi ON oi.order_id = o.id
+           WHERE o.id=$1
+           GROUP BY o.id`,
+          [id]
+        );
+        await client.query("COMMIT");
+        const order = result.rows[0];
+        getIo().emit("order.updated", order);
+        return res.json(order);
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (e: any) {
+      return res.status(500).json({ message: e?.message || "Failed to update order" });
     }
-
-    const order = store.orders.get(id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    if (order.status !== "PENDING") return res.status(400).json({ message: "Only pending orders can be updated" });
-
-    order.items = parsed.data.items as any;
-    if (parsed.data.channel) order.channel = parsed.data.channel;
-    if (parsed.data.taxRate !== undefined) order.taxRate = parsed.data.taxRate;
-    if (parsed.data.notes !== undefined) order.notes = parsed.data.notes;
-
-    saveStore();
-    getIo().emit("order.updated", order);
-    return res.json(order);
   }
 );
 
@@ -295,7 +350,8 @@ ordersRouter.put("/:id/status", requireAuth, async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: parsed.error.flatten() });
 
-  if (pool) {
+  try {
+    await ensureOrdersSchema();
     const field =
       parsed.data.status === "PREPARING"
         ? "prep_started_at"
@@ -306,6 +362,13 @@ ordersRouter.put("/:id/status", requireAuth, async (req, res) => {
             : parsed.data.status === "COMPLETED"
               ? "completed_at"
               : null;
+
+    const dbStatus = parsed.data.status === "FAILED_DELIVERY" ? "CANCELLED" : parsed.data.status;
+    const reason =
+      parsed.data.status === "FAILED_DELIVERY"
+        ? parsed.data.reason || "FAILED_DELIVERY"
+        : parsed.data.reason || null;
+
     const result = await pool.query(
       `UPDATE orders SET status=$1,
        cancellation_reason=$4,
@@ -316,25 +379,14 @@ ordersRouter.put("/:id/status", requireAuth, async (req, res) => {
        WHERE id=$3
        RETURNING id, order_no as "orderNo", status, placed_at as "placedAt",
                  prep_started_at as "prepStartedAt", ready_at as "readyAt",
-                 out_for_delivery_at as "outForDeliveryAt", completed_at as "completedAt"`,
-      [parsed.data.status, field, Number(req.params.id), parsed.data.reason || null]
+                 out_for_delivery_at as "outForDeliveryAt", completed_at as "completedAt", cancellation_reason as "cancellationReason"`,
+      [dbStatus, field, Number(req.params.id), reason]
     );
     if (!result.rows.length) return res.status(404).json({ message: "Order not found" });
     getIo().emit("order.status.changed", result.rows[0]);
     return res.json(result.rows[0]);
-  } else {
-    const order = store.orders.get(Number(req.params.id));
-    if (!order) return res.status(404).json({ message: "Order not found" });
-    order.status = parsed.data.status;
-    if (parsed.data.reason) order.cancellationReason = parsed.data.reason;
-    const now = new Date().toISOString();
-    if (order.status === "PREPARING") order.prepStartedAt = now;
-    if (order.status === "READY") order.readyAt = now;
-    if (order.status === "OUT_FOR_DELIVERY") order.outForDeliveryAt = now;
-    if (order.status === "COMPLETED") order.completedAt = now;
-    saveStore();
-    getIo().emit("order.status.changed", order);
-    return res.json(order);
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to update order status" });
   }
 });
 

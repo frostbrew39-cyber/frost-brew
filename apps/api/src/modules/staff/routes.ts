@@ -2,23 +2,57 @@ import { Router } from "express";
 import { z } from "zod";
 import { allowRoles, requireAuth } from "../../middleware/auth";
 import { pool } from "../../db/pool";
-import { store, saveStore } from "../../repositories/memoryStore";
 
 export const staffRouter = Router();
 
 type StaffColumnInfo = { column_name: string; data_type: string; udt_name: string };
 let cachedStaffColumns: StaffColumnInfo[] | null = null;
+async function ensureStaffSchema() {
+  if (!pool) throw new Error("Database not configured");
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS username VARCHAR(120)`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS password VARCHAR(255)`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS permissions JSONB`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS salary_monthly NUMERIC(12,2)`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS join_date DATE`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_attendance (
+      id BIGSERIAL PRIMARY KEY,
+      staff_id BIGINT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+      date DATE NOT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'Present',
+      check_in TIMESTAMPTZ,
+      check_out TIMESTAMPTZ,
+      UNIQUE(staff_id, date)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff_salary_logs (
+      id BIGSERIAL PRIMARY KEY,
+      staff_id BIGINT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+      date DATE NOT NULL,
+      type VARCHAR(30) NOT NULL,
+      amount NUMERIC(12,2) NOT NULL,
+      notes TEXT
+    )
+  `);
+}
+
 async function getStaffColumns(): Promise<StaffColumnInfo[]> {
+  await ensureStaffSchema();
   if (cachedStaffColumns) return cachedStaffColumns;
-  const result = await pool.query<StaffColumnInfo>(
+  const result = await pool.query(
     `
     SELECT column_name, data_type, udt_name
     FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'staff'
     `
   );
-  cachedStaffColumns = result.rows || [];
-  return cachedStaffColumns;
+  cachedStaffColumns = (result.rows || []) as StaffColumnInfo[];
+  return cachedStaffColumns || [];
 }
 
 staffRouter.get("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), async (_req, res) => {
@@ -74,122 +108,155 @@ staffRouter.get("/", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), async (_r
   }
 });
 
-staffRouter.get("/attendance", requireAuth, (req, res) => {
+staffRouter.get("/attendance", requireAuth, async (req, res) => {
   const date = req.query.date as string;
   if (!date) return res.status(400).json({ message: "date required" });
-  
-  const result: Record<number, any> = {};
-  for (const [key, value] of store.attendance.entries()) {
-    if (key.startsWith(date + "_")) {
-      const staffId = Number(key.split("_")[1]);
-      result[staffId] = value;
+  try {
+    await ensureStaffSchema();
+    const rows = await pool.query(
+      `SELECT staff_id as "staffId", status, check_in as "checkIn", check_out as "checkOut"
+       FROM staff_attendance
+       WHERE date = $1`,
+      [date]
+    );
+    const result: Record<number, any> = {};
+    for (const row of rows.rows) {
+      result[Number(row.staffId)] = { status: row.status, checkIn: row.checkIn, checkOut: row.checkOut };
     }
+    return res.json(result);
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to fetch attendance" });
   }
-  return res.json(result);
 });
 
-staffRouter.post("/attendance/check-in", requireAuth, (req, res) => {
+staffRouter.post("/attendance/check-in", requireAuth, async (req, res) => {
   const { staffId, date } = req.body;
   if (!staffId || !date) return res.status(400).json({ message: "staffId and date required" });
-  
-  const key = `${date}_${staffId}`;
-  const existing = store.attendance.get(key) || { status: 'Present' };
-  
-  store.attendance.set(key, {
-    ...existing,
-    checkIn: new Date().toISOString(),
-    status: 'Present'
-  });
-  
-  saveStore();
-  return res.json({ success: true, data: store.attendance.get(key) });
+  try {
+    await ensureStaffSchema();
+    const updated = await pool.query(
+      `INSERT INTO staff_attendance (staff_id, date, status, check_in)
+       VALUES ($1, $2, 'Present', NOW())
+       ON CONFLICT (staff_id, date)
+       DO UPDATE SET status='Present', check_in=NOW()
+       RETURNING status, check_in as "checkIn", check_out as "checkOut"`,
+      [staffId, date]
+    );
+    return res.json({ success: true, data: updated.rows[0] });
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to check in" });
+  }
 });
 
-staffRouter.post("/attendance/check-out", requireAuth, (req, res) => {
+staffRouter.post("/attendance/check-out", requireAuth, async (req, res) => {
   const { staffId, date } = req.body;
   if (!staffId || !date) return res.status(400).json({ message: "staffId and date required" });
-  
-  const key = `${date}_${staffId}`;
-  const existing = store.attendance.get(key);
-  
-  if (!existing) return res.status(404).json({ message: "No check-in found for today" });
-  
-  store.attendance.set(key, {
-    ...existing,
-    checkOut: new Date().toISOString()
-  });
-  
-  saveStore();
-  return res.json({ success: true, data: store.attendance.get(key) });
+  try {
+    await ensureStaffSchema();
+    const updated = await pool.query(
+      `UPDATE staff_attendance
+       SET check_out = NOW()
+       WHERE staff_id = $1 AND date = $2
+       RETURNING status, check_in as "checkIn", check_out as "checkOut"`,
+      [staffId, date]
+    );
+    if (!updated.rows.length) return res.status(404).json({ message: "No check-in found for today" });
+    return res.json({ success: true, data: updated.rows[0] });
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to check out" });
+  }
 });
 
 
-staffRouter.post("/attendance", requireAuth, (req, res) => {
+staffRouter.post("/attendance", requireAuth, async (req, res) => {
   const { staffId, date, status } = req.body;
   if (!staffId || !date) return res.status(400).json({ message: "staffId and date required" });
-  
-  const key = `${date}_${staffId}`;
-  if (!status) {
-    store.attendance.delete(key);
-  } else {
-    const existing = store.attendance.get(key) || {};
-    store.attendance.set(key, { ...existing, status });
+  try {
+    await ensureStaffSchema();
+    if (!status) {
+      await pool.query(`DELETE FROM staff_attendance WHERE staff_id=$1 AND date=$2`, [staffId, date]);
+    } else {
+      await pool.query(
+        `INSERT INTO staff_attendance (staff_id, date, status)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (staff_id, date)
+         DO UPDATE SET status = EXCLUDED.status`,
+        [staffId, date, status]
+      );
+    }
+    return res.json({ success: true });
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to update attendance" });
   }
-  saveStore();
-  return res.json({ success: true });
 });
 
 
 staffRouter.put("/:id/block", requireAuth, allowRoles("MASTER_ADMIN"), async (req, res) => {
-  const staff = store.users.find((u) => u.id === Number(req.params.id));
-  if (!staff) return res.status(404).json({ message: "Not found" });
-  staff.blocked = true;
-  saveStore();
-  return res.json({ success: true, staff });
+  try {
+    await ensureStaffSchema();
+    const result = await pool.query(`UPDATE staff SET is_blocked = TRUE WHERE id=$1 RETURNING id`, [Number(req.params.id)]);
+    if (!result.rows.length) return res.status(404).json({ message: "Not found" });
+    return res.json({ success: true });
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to block staff" });
+  }
 });
 
-staffRouter.get("/:id/salary", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), (req, res) => {
+staffRouter.get("/:id/salary", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), async (req, res) => {
   const staffId = Number(req.params.id);
-  const logs = store.salaryLogs.filter(l => l.staffId === staffId);
-  res.json(logs);
+  try {
+    await ensureStaffSchema();
+    const logs = await pool.query(
+      `SELECT id, staff_id as "staffId", date, type, amount, COALESCE(notes,'') as notes
+       FROM staff_salary_logs
+       WHERE staff_id=$1
+       ORDER BY date ASC, id ASC`,
+      [staffId]
+    );
+    res.json(logs.rows);
+  } catch (e: any) {
+    res.status(500).json({ message: e?.message || "Failed to fetch salary logs" });
+  }
 });
 
-staffRouter.post("/:id/salary", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), (req, res) => {
+staffRouter.post("/:id/salary", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), async (req, res) => {
   const staffId = Number(req.params.id);
   const { date, type, amount, notes } = req.body;
   
   if (!date || !type || !amount) return res.status(400).json({ message: "Missing fields" });
+  try {
+    await ensureStaffSchema();
+    const newLogResult = await pool.query(
+      `INSERT INTO staff_salary_logs (staff_id, date, type, amount, notes)
+       VALUES ($1,$2,$3,$4,$5)
+       RETURNING id, staff_id as "staffId", date, type, amount, COALESCE(notes,'') as notes`,
+      [staffId, date, type, Number(amount), notes || null]
+    );
 
-  const newLog = {
-    id: Date.now(),
-    staffId,
-    date,
-    type,
-    amount: Number(amount),
-    notes: notes || ""
-  };
-  
-  store.salaryLogs.push(newLog);
-
-  // If they got a raise, automatically bump their base monthly salary in the DB
-  if (type === 'RAISE') {
-    const user = store.users.find(u => u.id === staffId);
-    if (user) {
-      user.salaryMonthly = (user.salaryMonthly || 0) + Number(amount);
+    if (type === "RAISE") {
+      await pool.query(
+        `UPDATE staff
+         SET salary_monthly = COALESCE(salary_monthly, 0) + $1
+         WHERE id = $2`,
+        [Number(amount), staffId]
+      );
     }
-  }
 
-  store.salaryLogs.push(newLog);
-  saveStore();
-  res.json({ success: true, log: newLog });
+    res.json({ success: true, log: newLogResult.rows[0] });
+  } catch (e: any) {
+    res.status(500).json({ message: e?.message || "Failed to log salary" });
+  }
 });
 
 staffRouter.put("/:id/unblock", requireAuth, allowRoles("MASTER_ADMIN"), async (req, res) => {
-  const staff = store.users.find((u) => u.id === Number(req.params.id));
-  if (!staff) return res.status(404).json({ message: "Not found" });
-  staff.blocked = false;
-  saveStore();
-  return res.json({ success: true, staff });
+  try {
+    await ensureStaffSchema();
+    const result = await pool.query(`UPDATE staff SET is_blocked = FALSE WHERE id=$1 RETURNING id`, [Number(req.params.id)]);
+    if (!result.rows.length) return res.status(404).json({ message: "Not found" });
+    return res.json({ success: true });
+  } catch (e: any) {
+    return res.status(500).json({ message: e?.message || "Failed to unblock staff" });
+  }
 });
 
 staffRouter.put("/:id", requireAuth, allowRoles("MASTER_ADMIN", "ADMIN"), async (req, res) => {
